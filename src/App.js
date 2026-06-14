@@ -8,11 +8,13 @@ import Shopping from "./pages/Shopping";
 import Recipes from "./pages/Recipes";
 import Settings from "./pages/Settings";
 import useAutoBackup from "./hooks/useAutoBackup";
+import RestorePrompt from "./components/RestorePrompt";
 
 export default function App() {
   useAutoBackup();
   return (
     <AppLayout>
+      <RestorePrompt />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/scan" element={<Scan />} />

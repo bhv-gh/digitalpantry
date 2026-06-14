@@ -49,28 +49,23 @@ npx serve -s build
 
 Deploy `/build` to any static host (Netlify / Vercel / Cloudflare Pages / GitHub Pages) over HTTPS.
 
-## Backup & Google Sheets sync
+## Backup
 
-Open Settings to back up your data. Two options:
+Cloud backup runs against a hardcoded Google Apps Script web-app URL
+(`src/lib/sheetsSync.js → SHEETS_URL`) bound to a single Google Sheet.
 
-### A. Google Sheets (recommended)
+- **On every app load**, a modal asks "Restore from cloud backup?" — tap *Yes,
+  restore* to replace local data with the sheet contents, *No* to keep local.
+- **Auto-backup** pushes the local pantry to the sheet every 5 minutes (and once
+  on app load, after the restore prompt is dismissed). Toggle in Settings →
+  Cloud backup. Status and last-backup time are shown there too.
+- **Manual Test / Push / Pull** buttons in Settings → Cloud backup for ad-hoc use.
+- **JSON file** fallback under Settings → Backup file. Download a snapshot to keep
+  anywhere (Drive, iCloud, email to self) and import it back from any device.
 
-One-time setup (~5 min, free, no Google Cloud Console):
-
-1. Create a blank Sheet at https://sheets.new ("Pantry Backup").
-2. Extensions → Apps Script. Replace the default code with the script shown in **Settings → Sheets sync → How to set up?** (there's a Copy button).
-3. Deploy → New deployment → Web app. **Execute as: Me**, **Who has access: Anyone**. Authorise when prompted.
-4. Copy the deployment URL, paste it into Settings → Sheets sync → Save URL → Test.
-
-Then:
-- **Push** sends your entire pantry to the Sheet (replaces sheet contents each push).
-- **Pull** fetches from the Sheet — pick Merge (keep local, add missing) or Replace All.
-
-The URL is a shared secret — anyone with it can read/write your sheet. Don't paste it in public.
-
-### B. JSON file
-
-Settings → Backup file → Download JSON. Save anywhere (Drive, iCloud, email to self). Import the same file from any device.
+To rotate the Apps Script deployment, paste the new `/exec` URL into `SHEETS_URL`
+and redeploy. The script source lives in git history (last seen at
+`src/lib/appsScriptSource.js` before the URL was hardcoded).
 
 ## Gemini setup
 
@@ -106,8 +101,7 @@ src/
     date.js            Expiry helpers
     ocr.js             Tesseract + date heuristics
     backup.js          JSON/CSV serialise + import logic
-    sheetsSync.js      Talks to the Apps Script web-app
-    appsScriptSource.js  Script source (copyable from Settings)
+    sheetsSync.js      Talks to the hardcoded Apps Script web-app
   pages/
     Home.js, Scan.js, Pantry.js, AddPantryItem.js,
     Shopping.js, Recipes.js, Settings.js

@@ -3,18 +3,25 @@ import { getSetting, setSetting } from "../db/settingsRepo";
 import { pushToSheet } from "../lib/sheetsSync";
 
 export const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
-const MIN_GAP_MS = 60 * 1000; // never push more than once per minute
+const MIN_GAP_MS = 60 * 1000;
+export const RESTORE_DECISION_KEY = "pantry-restore-decided";
+
+function restoreDecided() {
+  try {
+    return sessionStorage.getItem(RESTORE_DECISION_KEY) === "1";
+  } catch {
+    return true; // no sessionStorage → don't block
+  }
+}
 
 /**
- * Auto-backup to the configured Google Sheet.
- *  - Runs once on mount (so the first push happens at page load).
- *  - Then every AUTO_BACKUP_INTERVAL_MS while the tab is open.
- *  - Also re-checks when the tab becomes visible (mobile browsers throttle
- *    setInterval in background tabs, so an interval alone misses the case
- *    "user reopened the PWA an hour later").
- *
- * No-op when sheetsUrl is empty or autoBackupEnabled is false.
- * Exposes the latest status as React state for the Settings UI.
+ * Auto-backup to the hardcoded Apps Script web-app.
+ *  - Runs once on mount, then every AUTO_BACKUP_INTERVAL_MS.
+ *  - Re-checks when the tab becomes visible (mobile browsers throttle
+ *    setInterval in background tabs).
+ *  - Gated on the user dismissing the restore-on-load prompt so a slow Yes
+ *    doesn't get overwritten by a stale auto-push.
+ *  - No-op when autoBackupEnabled === false.
  */
 export default function useAutoBackup() {
   const [status, setStatus] = useState({ lastAt: null, lastError: null, running: false });
@@ -23,18 +30,18 @@ export default function useAutoBackup() {
 
   const runOnce = useCallback(async ({ force = false } = {}) => {
     if (inflightRef.current) return;
-    const [url, enabledRaw, lastAt] = await Promise.all([
-      getSetting("sheetsUrl"),
+    if (!restoreDecided()) return;
+    const [enabledRaw, lastAt] = await Promise.all([
       getSetting("autoBackupEnabled", true),
       getSetting("lastBackupAt", 0),
     ]);
-    if (!url || enabledRaw === false) return;
+    if (enabledRaw === false) return;
     if (!force && lastAt && Date.now() - lastAt < MIN_GAP_MS) return;
 
     inflightRef.current = true;
     setStatus((s) => ({ ...s, running: true }));
     try {
-      await pushToSheet(url);
+      await pushToSheet();
       const now = Date.now();
       await setSetting("lastBackupAt", now);
       await setSetting("lastBackupError", null);
@@ -53,8 +60,6 @@ export default function useAutoBackup() {
   useEffect(() => {
     let stopped = false;
 
-    // Hydrate status from settings so Settings page shows "Last: X min ago"
-    // even before the first auto-push fires.
     (async () => {
       const [lastAt, lastError] = await Promise.all([
         getSetting("lastBackupAt", null),
@@ -63,7 +68,7 @@ export default function useAutoBackup() {
       if (!stopped) setStatus({ lastAt, lastError, running: false });
     })();
 
-    // First run on mount.
+    // First run on mount (will no-op until restore prompt is dismissed).
     runOnce({ force: true });
 
     const interval = setInterval(() => {
@@ -75,10 +80,15 @@ export default function useAutoBackup() {
     };
     document.addEventListener("visibilitychange", onVisible);
 
+    // Re-check shortly after the restore prompt is dismissed.
+    const onDecided = () => tickRef.current?.({ force: true });
+    window.addEventListener("pantry:restore-decided", onDecided);
+
     return () => {
       stopped = true;
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pantry:restore-decided", onDecided);
     };
   }, [runOnce]);
 

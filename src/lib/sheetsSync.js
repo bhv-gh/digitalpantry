@@ -1,28 +1,30 @@
 import { exportAll, importAll, validateBackup } from "./backup";
 
+/**
+ * Hardcoded Apps Script web-app URL. If you redeploy the script
+ * (Apps Script editor → Deploy → Manage deployments → edit), paste the new
+ * "/exec" URL here and ship a build.
+ */
+export const SHEETS_URL =
+  "https://script.google.com/macros/s/AKfycbz8G6ye4KTLUjYZC_R26dSm-MV4L9J6JJKvUT8l_2Wp9lP8d9ndMYgR9lkb0_nZEwc/exec";
+
 const ACTIONS = { EXPORT: "export", IMPORT: "import", PING: "ping" };
 
 /**
- * Calls a deployed Google Apps Script web app.
- *
- * Important: we use text/plain content-type so the browser treats this
- * as a "simple" CORS request (no preflight). Apps Script doesn't reply
- * to OPTIONS, so a preflight would otherwise fail.
+ * text/plain content-type keeps this a "simple" CORS request — Apps Script
+ * doesn't reply to OPTIONS preflights, so anything else fails.
  */
-async function callScript(url, action, payload = null) {
-  if (!url) throw new Error("Set the Apps Script URL in Settings first.");
+async function callScript(action, payload = null) {
   let res;
   try {
-    res = await fetch(url, {
+    res = await fetch(SHEETS_URL, {
       method: "POST",
       redirect: "follow",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action, payload }),
     });
   } catch (e) {
-    throw new Error(
-      "Couldn't reach the script. Check the URL and that the deployment access is set to 'Anyone'."
-    );
+    throw new Error("Couldn't reach the backup script.");
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -34,29 +36,27 @@ async function callScript(url, action, payload = null) {
     json = JSON.parse(text);
   } catch {
     throw new Error(
-      "Sheet returned a non-JSON response. Make sure you deployed the latest version of the script."
+      "Sheet returned a non-JSON response. The script may need to be redeployed."
     );
   }
   if (json.error) throw new Error(json.error);
   return json;
 }
 
-export async function pingSheet(url) {
-  return callScript(url, ACTIONS.PING);
-}
+export const pingSheet = () => callScript(ACTIONS.PING);
 
-export async function pushToSheet(url) {
+export async function pushToSheet() {
   const data = await exportAll();
-  return callScript(url, ACTIONS.EXPORT, data);
+  return callScript(ACTIONS.EXPORT, data);
 }
 
 /** Fetch and validate but don't import — used for the confirm dialog. */
-export async function fetchFromSheet(url) {
-  const data = await callScript(url, ACTIONS.IMPORT);
+export async function fetchFromSheet() {
+  const data = await callScript(ACTIONS.IMPORT);
   return validateBackup(data);
 }
 
-export async function pullFromSheet(url, mode) {
-  const parsed = await fetchFromSheet(url);
+export async function pullFromSheet(mode) {
+  const parsed = await fetchFromSheet();
   return importAll(parsed, mode);
 }
