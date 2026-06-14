@@ -1,12 +1,15 @@
-/* Pantry Digitiser - basic offline shell service worker. */
+/* Pantry Digitiser - basic offline shell service worker.
+   Paths are RELATIVE so this works whether the app is hosted at "/"
+   (local dev / root deploy) or at a subpath like "/digitalpantry/"
+   (GitHub Pages). The browser resolves "./foo" against the SW's URL. */
 const CACHE = "pantry-shell-v1";
 const SHELL = [
-  "/",
-  "/index.html",
-  "/manifest.json",
-  "/favicon.ico",
-  "/logo192.png",
-  "/logo512.png",
+  "./",
+  "./index.html",
+  "./manifest.json",
+  "./favicon.ico",
+  "./logo192.png",
+  "./logo512.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -29,16 +32,19 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // Never cache API calls (OpenFoodFacts, Gemini) - always go to network
+  // Never cache API calls — always go to network.
   if (
     url.hostname.includes("openfoodfacts.org") ||
     url.hostname.includes("googleapis.com") ||
-    url.hostname.includes("generativelanguage")
+    url.hostname.includes("generativelanguage") ||
+    url.hostname.includes("script.google.com") ||
+    url.hostname.includes("script.googleusercontent.com")
   ) {
     return;
   }
 
-  // App shell: network-first, fall back to cache, then index for SPA routes
+  // App shell: network-first, fall back to cache, then index for SPA routes.
+  const indexUrl = new URL("./index.html", self.registration.scope).toString();
   event.respondWith(
     fetch(req)
       .then((res) => {
@@ -47,7 +53,7 @@ self.addEventListener("fetch", (event) => {
         return res;
       })
       .catch(() =>
-        caches.match(req).then((cached) => cached || caches.match("/index.html"))
+        caches.match(req).then((cached) => cached || caches.match(indexUrl))
       )
   );
 });
