@@ -1,70 +1,123 @@
-# Getting Started with Create React App
+# Pantry Digitiser
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A mobile-first PWA to scan groceries into a digital pantry, get recipe ideas from Gemini, and manage a shopping list. Works fully offline (data lives in IndexedDB); ready to swap to Supabase later via the repository layer in `src/db/`.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Barcode scanner** (EAN / UPC / QR) via camera, powered by ZXing through `html5-qrcode`
+- **OpenFoodFacts lookup** — auto-fills product name / brand / image from the global database
+- **Quick manual register** for products not in OFF; remembered for next time
+- **Add to pantry** with quantity, unit, location, and expiry date (date picker or OCR)
+- **Pantry view** sorted by expiry, with colour-coded urgency, quick qty +/-, and "add to shop" on each item
+- **Shopping list** with manual add (voice-to-text), check-off, and bulk clear
+- **Voice input** on most text fields (Web Speech API — Chrome / Safari)
+- **OCR** for expiry dates and label-to-name (lazy-loaded Tesseract.js, optional)
+- **Gemini recipes** — "what can I cook with what I have?" and "I want to cook X — what's missing?"; one-tap add missing ingredients to the shopping list
+- **PWA**: installable, offline shell
 
-### `npm start`
+## Running locally
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```
+npm install
+npm start          # http://localhost:3000
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+`localhost` is treated as a secure context, so camera and mic both work.
 
-### `npm test`
+To test from your **phone** on the same Wi-Fi (camera/mic need HTTPS off-localhost):
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```
+npm run start:https
+# accept the self-signed cert on the phone, then open:
+# https://<your-laptop-LAN-IP>:3000
+```
 
-### `npm run build`
+Or expose via a tunnel (no cert juggling):
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```
+npx cloudflared tunnel --url http://localhost:3000
+# or
+ngrok http 3000
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Production build
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```
+npm run build
+npx serve -s build
+```
 
-### `npm run eject`
+Deploy `/build` to any static host (Netlify / Vercel / Cloudflare Pages / GitHub Pages) over HTTPS.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Backup & Google Sheets sync
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Open Settings to back up your data. Two options:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### A. Google Sheets (recommended)
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+One-time setup (~5 min, free, no Google Cloud Console):
 
-## Learn More
+1. Create a blank Sheet at https://sheets.new ("Pantry Backup").
+2. Extensions → Apps Script. Replace the default code with the script shown in **Settings → Sheets sync → How to set up?** (there's a Copy button).
+3. Deploy → New deployment → Web app. **Execute as: Me**, **Who has access: Anyone**. Authorise when prompted.
+4. Copy the deployment URL, paste it into Settings → Sheets sync → Save URL → Test.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Then:
+- **Push** sends your entire pantry to the Sheet (replaces sheet contents each push).
+- **Pull** fetches from the Sheet — pick Merge (keep local, add missing) or Replace All.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+The URL is a shared secret — anyone with it can read/write your sheet. Don't paste it in public.
 
-### Code Splitting
+### B. JSON file
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+Settings → Backup file → Download JSON. Save anywhere (Drive, iCloud, email to self). Import the same file from any device.
 
-### Analyzing the Bundle Size
+## Gemini setup
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+1. Get a key at https://aistudio.google.com/app/apikey
+2. Open the app, tap the gear icon → paste your key → Save.
+3. Recipes page can now suggest meals.
 
-### Making a Progressive Web App
+The key is stored in this browser's IndexedDB and only ever sent to Google's Gemini API.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Project layout
 
-### Advanced Configuration
+```
+src/
+  api/
+    openFoodFacts.js   Barcode → product lookup
+    gemini.js          Recipe generation (JSON schema)
+  components/
+    AppLayout.js       Header + bottom-nav shell
+    BarcodeScanner.js  Camera + barcode capture + manual fallback
+    MicButton.js       Reusable voice-input button
+    VoiceInput.js      Text input + mic
+    OcrCapture.js      Lazy-loaded Tesseract for label / expiry
+    icons.js           Inline SVG icon set
+  db/
+    schema.js          IndexedDB open / migrations / uid()
+    productsRepo.js    Reusable product catalog
+    pantryRepo.js      Pantry items
+    shoppingRepo.js    Shopping list
+    settingsRepo.js    Key-value settings (Gemini API key, …)
+  hooks/
+    useSpeechToText.js
+  lib/
+    date.js            Expiry helpers
+    ocr.js             Tesseract + date heuristics
+    backup.js          JSON/CSV serialise + import logic
+    sheetsSync.js      Talks to the Apps Script web-app
+    appsScriptSource.js  Script source (copyable from Settings)
+  pages/
+    Home.js, Scan.js, Pantry.js, AddPantryItem.js,
+    Shopping.js, Recipes.js, Settings.js
+  App.js               Router
+  index.js             Entry + SW registration
+public/
+  manifest.json
+  service-worker.js    Network-first app shell cache
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## Swapping IndexedDB for Supabase later
 
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+All persistence flows through `src/db/*Repo.js` plus `schema.js`. Each repo exposes a small async API (`list…`, `add…`, `update…`, `delete…`). Replace those with Supabase calls and the rest of the app is unchanged.
