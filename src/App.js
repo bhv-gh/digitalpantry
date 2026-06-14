@@ -7,8 +7,10 @@ import AddPantryItem from "./pages/AddPantryItem";
 import Shopping from "./pages/Shopping";
 import Recipes from "./pages/Recipes";
 import Settings from "./pages/Settings";
+import useAutoBackup from "./hooks/useAutoBackup";
 
 export default function App() {
+  useAutoBackup();
   return (
     <AppLayout>
       <Routes>

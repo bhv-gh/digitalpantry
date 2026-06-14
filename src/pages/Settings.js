@@ -10,6 +10,7 @@ import {
 } from "../lib/backup";
 import { pingSheet, pushToSheet, fetchFromSheet } from "../lib/sheetsSync";
 import { APPS_SCRIPT_SOURCE } from "../lib/appsScriptSource";
+import { AUTO_BACKUP_INTERVAL_MS } from "../hooks/useAutoBackup";
 
 export default function Settings() {
   /* ---- Gemini key ---- */
@@ -17,21 +18,39 @@ export default function Settings() {
   const [showGemini, setShowGemini] = useState(false);
   const [geminiSavedAt, setGeminiSavedAt] = useState(null);
 
-  /* ---- Sheets URL ---- */
+  /* ---- Sheets URL + auto-backup ---- */
   const [sheetUrl, setSheetUrl] = useState("");
   const [sheetSavedAt, setSheetSavedAt] = useState(null);
   const [sheetStatus, setSheetStatus] = useState(null);
   const [busy, setBusy] = useState(null);
   const [showSetup, setShowSetup] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [autoBackup, setAutoBackup] = useState(true);
+  const [lastBackupAt, setLastBackupAt] = useState(null);
+  const [lastBackupError, setLastBackupError] = useState(null);
 
   /* ---- Import dialog ---- */
   const [pending, setPending] = useState(null); // { source, parsed, summary }
   const fileInputRef = useRef(null);
 
+  const refreshBackupStatus = async () => {
+    const [at, err] = await Promise.all([
+      getSetting("lastBackupAt", null),
+      getSetting("lastBackupError", null),
+    ]);
+    setLastBackupAt(at);
+    setLastBackupError(err);
+  };
+
   useEffect(() => {
     getSetting("geminiApiKey").then((v) => setGeminiKey(v || ""));
     getSetting("sheetsUrl").then((v) => setSheetUrl(v || ""));
+    getSetting("autoBackupEnabled", true).then((v) => setAutoBackup(v !== false));
+    refreshBackupStatus();
+    // Poll while settings is open so the "Last backup" timer stays fresh
+    // even when the user just sits on this page.
+    const t = setInterval(refreshBackupStatus, 15000);
+    return () => clearInterval(t);
   }, []);
 
   const saveGemini = async (e) => {
@@ -71,12 +90,23 @@ export default function Settings() {
   const onPush = () =>
     withBusy("push", async () => {
       const res = await pushToSheet(sheetUrl);
+      const now = Date.now();
+      await setSetting("lastBackupAt", now);
+      await setSetting("lastBackupError", null);
+      setLastBackupAt(now);
+      setLastBackupError(null);
       const c = res.counts || {};
       setSheetStatus({
         kind: "ok",
         message: `Pushed: ${c.products || 0} products, ${c.pantryItems || 0} pantry, ${c.shoppingItems || 0} shopping.`,
       });
     });
+
+  const toggleAutoBackup = async (e) => {
+    const next = e.target.checked;
+    setAutoBackup(next);
+    await setSetting("autoBackupEnabled", next);
+  };
 
   const onPull = () =>
     withBusy("pull-prepare", async () => {
@@ -265,6 +295,37 @@ export default function Settings() {
           </div>
         </form>
 
+        <label className="flex items-center justify-between gap-3 py-1">
+          <span className="text-sm">
+            <span className="font-medium">Auto-backup every {Math.round(AUTO_BACKUP_INTERVAL_MS / 60000)} min</span>
+            <br />
+            <span className="text-xs text-gray-500">Pushes silently while the app is open.</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={autoBackup}
+            onChange={toggleAutoBackup}
+            disabled={!sheetUrl}
+            className="w-5 h-5 accent-brand-600"
+          />
+        </label>
+
+        <div className="text-xs text-gray-600">
+          {sheetUrl ? (
+            <>
+              Last backup:{" "}
+              <span className="font-medium">{formatLast(lastBackupAt)}</span>
+              {lastBackupError && (
+                <span className="block text-red-700 mt-0.5">
+                  Last attempt failed: {lastBackupError}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-gray-500">Add a URL to enable auto-backup.</span>
+          )}
+        </div>
+
         <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
@@ -401,5 +462,16 @@ function countSummary(parsed) {
     pantryItems: parsed.pantryItems?.length || 0,
     shoppingItems: parsed.shoppingItems?.length || 0,
   };
+}
+
+function formatLast(ts) {
+  if (!ts) return "never";
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return new Date(ts).toLocaleString();
 }
 
